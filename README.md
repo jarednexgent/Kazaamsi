@@ -22,7 +22,7 @@ Kazaamsi is a lightweight tool for disabling the Windows Antimalware Scan Interf
 Kazaamsi.exe <PID> [-v]
 ```
 
-[![kazaamsi.png](https://i.postimg.cc/7h5N4cnv/kazaamsi.png)](https://postimg.cc/SYp97gPV)
+[![kazaamsi.png](https://i.postimg.cc/kGpvGPDS/kazaamsi.png)](https://postimg.cc/CnbqrtGM)
 
 ---
 

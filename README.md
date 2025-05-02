@@ -2,9 +2,7 @@
 
 #### Remote AMSI Bypass via AmsiScanBuffer Patching
 
-Kazaamsi is a lightweight tool for disabling Windows Antimalware Scan Interface (AMSI) in remote processes by directly patching the `AmsiScanBuffer` function. 
-
-Operates out-of-process, allowing you to neutralize AMSI protections in arbitrary targets, such as injected PowerShell or CLR hosts.
+Kazaamsi is a lightweight tool for disabling the Windows Antimalware Scan Interface (AMSI) in remote processes by directly patching the `AmsiScanBuffer` function. It operates out of process, allowing you to neutralize AMSI protections in arbitrary targets—such as injected PowerShell or CLR hosts.
 
 ---
 
@@ -18,31 +16,6 @@ Operates out-of-process, allowing you to neutralize AMSI protections in arbitrar
 
 ---
 
-### Build Instructions
-
-**Visual Studio**
-1. Open Solution File `Kazaamsi.sln` in Visual Studio
-
-2. Configure Build:
-    - `Configuration: Release`
-    - `Platform: x64`
-	
-3. Configure Project Properties:
-	- C/C++ → Code Generation:
-    `Runtime Library: Multi-threaded (/MT)`
-    `Enable C++ Exceptions: No`
-
-	- C/C++ → Optimization:
-    `Whole Program Optimization: No`
-
-	- Linker → Debugging:
-    `Generate Debug Info: No`
-
-	- Linker → Manifest:
-    `Generate Manifest: No`
-	
-4. Select `Build` → `Build Solution`
-
 ### Usage
 
 ```cmd
@@ -50,3 +23,21 @@ Kazaamsi.exe <PID> [-v]
 ```
 
 [![kazaamsi.png](https://i.postimg.cc/7h5N4cnv/kazaamsi.png)](https://postimg.cc/SYp97gPV)
+
+---
+
+### Build
+
+**Visual Studio**  
+1. Open `Kazaamsi.sln` in Visual Studio  
+2. Set **Configuration** to `Release` and **Platform** to `x64`  
+3. Project Properties → C/C++ → Code Generation  
+   - Runtime Library: Multi-threaded (/MT)  
+   - Enable C++ Exceptions: No  
+4. C/C++ → Optimization → Whole Program Optimization: No  
+5. Linker → Debugging → Generate Debug Info: No  
+6. Linker → Manifest → Generate Manifest: No  
+7. Build the solution
+---
+
+

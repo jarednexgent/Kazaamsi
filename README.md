@@ -1,6 +1,6 @@
 # Kazaamsi
 
-[![kazaamsi-logo.png](https://i.postimg.cc/1zSBCgkM/kazaamsi-logo.png)](https://postimg.cc/v4P5DmH6)
+[![kazaamsi-logo-1.png](https://i.postimg.cc/RF76XB6H/kazaamsi-logo-1.png)](https://postimg.cc/vgmZZCvY)
 
 #### Remote AMSI Bypass via AmsiScanBuffer Patching
 

@@ -4,7 +4,7 @@
 
 #### Remote AMSI Bypass via AmsiScanBuffer Patching
 
-Kazaamsi is a lightweight tool for disabling the Windows Antimalware Scan Interface (AMSI) in remote processes by directly patching the `AmsiScanBuffer` function. It operates out of process, allowing you to neutralize AMSI protections in arbitrary targets—such as injected PowerShell or CLR hosts.
+Kazaamsi is a specialized utility designed to disable the Windows Antimalware Scan Interface (AMSI) in remote processes. It achieves this by directly patching the `AmsiScanBuffer` function, thereby neutralizing AMSI protections in arbitrary targets—such as injected PowerShell or CLR hosts.
 
 ---
 

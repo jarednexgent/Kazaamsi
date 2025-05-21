@@ -10,7 +10,6 @@ Kazaamsi is a specialized utility designed to disable the Windows Antimalware Sc
 
 ### Features 
 
-- In-memory patching (no DLL injection or file drops)
 - Targets remote processes by PID
 - Extracts the `AmsiScanBuffer` function offset dynamically by parsing the in-memory `amsi.dll`
 - Overwrites it with a clean `xor eax, eax; ret` stub, setting the [Common HRESULT Value](https://learn.microsoft.com/en-us/windows/win32/seccrypto/common-hresult-values) to `S_OK`

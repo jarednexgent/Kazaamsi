@@ -24,17 +24,17 @@ Kazaamsi.exe <PID> [-v]
 
 ## Build
 
-### Visual Studio 2022 (GUI)
+### Visual Studio 2022
+
 1. Open `Kazaamsi.sln`
-2. Select **Release | x64**
-3. Build → Build Solution
+2. Set configuration to `Release` and platform to `x64`
+3. On the menu bar choose `Build` → `Build Solution`
 
-### Command line (recommended)
-
-Open **x64 Native Tools Command Prompt for VS 2022** and run:
+### Developer Command Prompt for VS 2022
 
 ```cmd
 msbuild Kazaamsi.sln /m /p:Configuration=Release;Platform=x64
 ```
+
 
 

@@ -40,8 +40,9 @@ typedef struct _WIN32_API {
     fnOpenProcess               pOpenProcess;
 } WIN32_API, * PWIN32_API;
 
-DWORD CRC32BA(LPCSTR cString);
+UINT32 CRC32BA(LPCSTR cString);
 HMODULE GetModuleHandleH(UINT32 uDllNameHash);
 LPVOID GetProcAddressH(HMODULE hModule, DWORD dwProcHash);
+BOOL InitializeWin32Api(PWIN32_API pWin32Api);
 
 #endif // API_H

